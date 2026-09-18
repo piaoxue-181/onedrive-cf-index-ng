@@ -1,13 +1,13 @@
 import axios from 'axios'
 import useSWR, { SWRResponse } from 'swr'
-import { Dispatch, Fragment, SetStateAction, useState } from 'react'
+import { Dispatch, SetStateAction, useState } from 'react'
 import AwesomeDebouncePromise from 'awesome-debounce-promise'
 import { useAsync } from 'react-async-hook'
 import useConstant from 'use-constant'
 
 import Link from 'next/link'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { Dialog, DialogBackdrop, Transition } from '@headlessui/react'
+import { Dialog, DialogBackdrop, DialogPanel, DialogTitle } from '@headlessui/react'
 
 import type { OdDriveItem, OdSearchResult } from '../types'
 import { LoadingIcon } from './Loading'
@@ -177,73 +177,62 @@ export default function SearchModal({
   }
 
   return (
-    <Transition appear show={searchOpen} as={Fragment}>
-      <Dialog as="div" className="fixed inset-0 z-[200] overflow-y-auto" onClose={closeSearchBox}>
-        <div className="min-h-screen px-4 text-center">
-          <Transition.Child
-            as={Fragment}
-            enter="ease-out duration-100"
-            enterFrom="opacity-0"
-            enterTo="opacity-100"
-            leave="ease-in duration-100"
-            leaveFrom="opacity-100"
-            leaveTo="opacity-0"
-          >
-            <DialogBackdrop className="fixed inset-0 bg-white/80 dark:bg-gray-800/80" />
-          </Transition.Child>
+    <Dialog open={searchOpen} onClose={closeSearchBox} className="relative z-[200]">
+      {/* 全屏半透明背景，带淡入淡出 */}
+      <DialogBackdrop
+        transition
+        className="fixed inset-0 bg-white/80 duration-100 ease-out data-[closed]:opacity-0 dark:bg-gray-800/80"
+      />
 
-          <Transition.Child
-            as={Fragment}
-            enter="ease-out duration-100"
-            enterFrom="opacity-0 scale-95"
-            enterTo="opacity-100 scale-100"
-            leave="ease-in duration-100"
-            leaveFrom="opacity-100 scale-100"
-            leaveTo="opacity-0 scale-95"
+      {/* 全屏滚动容器，保证内容居中且不随页面滚动 */}
+      <div className="fixed inset-0 overflow-y-auto">
+        <div className="flex min-h-full items-start justify-center p-4">
+          <DialogPanel
+            transition
+            className="my-12 w-full max-w-3xl transform overflow-hidden rounded border border-gray-400/30 text-left shadow-xl transition-all duration-100 ease-out data-[closed]:scale-95 data-[closed]:opacity-0"
           >
-            <div className="my-12 inline-block w-full max-w-3xl transform overflow-hidden rounded border border-gray-400/30 text-left shadow-xl transition-all">
-              <Dialog.Title
-                as="h3"
-                className="flex items-center space-x-4 border-b border-gray-400/30 bg-gray-50 p-4 dark:bg-gray-800 dark:text-white"
-              >
-                <FontAwesomeIcon icon="search" className="h-4 w-4" />
-                <input
-                  type="text"
-                  id="search-box"
-                  className="w-full bg-transparent focus:outline-none focus-visible:outline-none"
-                  placeholder={'Search ...'}
-                  value={query}
-                  onChange={e => setQuery(e.target.value)}
-                />
-                <div className="rounded-lg bg-gray-200 px-2 py-1 text-xs font-medium dark:bg-gray-700">ESC</div>
-              </Dialog.Title>
-              <div
-                className="max-h-[80vh] overflow-x-hidden overflow-y-scroll bg-white dark:bg-gray-900 dark:text-white"
-                onClick={closeSearchBox}
-              >
-                {results.loading && (
-                  <div className="px-4 py-12 text-center text-sm font-medium">
-                    <LoadingIcon className="svg-inline--fa mr-2 inline-block h-4 w-4 animate-spin" />
-                    <span>{'Loading ...'}</span>
-                  </div>
-                )}
-                {results.error && (
-                  <div className="px-4 py-12 text-center text-sm font-medium">{`Error: ${results.error.message}`}</div>
-                )}
-                {results.result && (
-                  <>
-                    {results.result.length === 0 ? (
-                      <div className="px-4 py-12 text-center text-sm font-medium">{'Nothing here.'}</div>
-                    ) : (
-                      results.result.map(result => <SearchResultItem key={result.id} result={result} />)
-                    )}
-                  </>
-                )}
-              </div>
+            <DialogTitle
+              as="h3"
+              className="flex items-center space-x-4 border-b border-gray-400/30 bg-gray-50 p-4 dark:bg-gray-800 dark:text-white"
+            >
+              <FontAwesomeIcon icon="search" className="h-4 w-4" />
+              <input
+                type="text"
+                id="search-box"
+                className="w-full bg-transparent focus:outline-none focus-visible:outline-none"
+                placeholder={'Search ...'}
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+              />
+              <div className="rounded-lg bg-gray-200 px-2 py-1 text-xs font-medium dark:bg-gray-700">ESC</div>
+            </DialogTitle>
+
+            <div
+              className="max-h-[80vh] overflow-x-hidden overflow-y-scroll bg-white dark:bg-gray-900 dark:text-white"
+              onClick={closeSearchBox}
+            >
+              {results.loading && (
+                <div className="px-4 py-12 text-center text-sm font-medium">
+                  <LoadingIcon className="svg-inline--fa mr-2 inline-block h-4 w-4 animate-spin" />
+                  <span>{'Loading ...'}</span>
+                </div>
+              )}
+              {results.error && (
+                <div className="px-4 py-12 text-center text-sm font-medium">{`Error: ${results.error.message}`}</div>
+              )}
+              {results.result && (
+                <>
+                  {results.result.length === 0 ? (
+                    <div className="px-4 py-12 text-center text-sm font-medium">{'Nothing here.'}</div>
+                  ) : (
+                    results.result.map(result => <SearchResultItem key={result.id} result={result} />)
+                  )}
+                </>
+              )}
             </div>
-          </Transition.Child>
+          </DialogPanel>
         </div>
-      </Dialog>
-    </Transition>
+      </div>
+    </Dialog>
   )
 }
