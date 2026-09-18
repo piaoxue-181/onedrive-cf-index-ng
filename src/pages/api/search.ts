@@ -1,10 +1,9 @@
 import axios from 'redaxios'
-import type { NextApiRequest, NextApiResponse } from 'next'
+import { NextResponse, NextRequest } from 'next/server'
 
-import { encodePath, getAccessToken } from '.'
+import { getAccessToken } from '.'
 import apiConfig from '../../../config/api.config'
 import siteConfig from '../../../config/site.config'
-import { NextRequest, NextResponse } from 'next/server'
 
 export const runtime = 'edge'
 
@@ -29,40 +28,53 @@ function sanitiseQuery(query: string): string {
 }
 
 export default async function handler(req: NextRequest): Promise<Response> {
-  // Get access token from storage
-  const accessToken = await getAccessToken()
-
   // Query parameter from request
   const { q: searchQuery = '' } = Object.fromEntries(req.nextUrl.searchParams)
 
-  // TODO: Set edge function caching for faster load times
-
-  if (typeof searchQuery === 'string') {
-    // Construct Microsoft Graph Search API URL, and perform search only under the base directory
-    const searchRootPath = encodePath('/')
-    const encodedPath = searchRootPath === '' ? searchRootPath : searchRootPath + ':'
-
-    const searchApi = `${apiConfig.driveApi}/root${encodedPath}/search(q='${sanitiseQuery(searchQuery)}')`
-
-    try {
-      const { data } = await axios.get(searchApi, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        params: {
-          select: 'id,name,file,folder,parentReference',
-          top: siteConfig.maxItems,
-        },
-      })
-      return NextResponse.json(data.value, {
-        headers: {
-          'Cache-Control': apiConfig.cacheControlHeader,
-        },
-      })
-    } catch (error: any) {
-      return new Response(JSON.stringify({ error: error?.response?.data ?? 'Internal server error.' }), {
-        status: error?.response?.status ?? 500,
-      })
-    }
-  } else {
+  // 空查询直接返回空数组，避免无谓的 Graph API 调用
+  if (typeof searchQuery !== 'string' || searchQuery.length === 0) {
     return NextResponse.json([])
+  }
+
+  try {
+    // Get access token from storage
+    const accessToken = await getAccessToken()
+
+    // 在根目录下搜索。
+    // 注意：Graph API 的正确格式是 /root/search(q='...')，
+    // 根路径不需要 encodePath('/') 和多出来的 ':'。
+    const searchApi = `${apiConfig.driveApi}/root/search(q='${sanitiseQuery(searchQuery)}')`
+
+    const { data } = await axios.get(searchApi, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      params: {
+        select: 'id,name,file,folder,parentReference',
+        top: siteConfig.maxItems ?? 100,
+      },
+    })
+
+    return NextResponse.json(data.value ?? [], {
+      headers: {
+        'Cache-Control': apiConfig.cacheControlHeader,
+      },
+    })
+  } catch (error: any) {
+    // 打印完整错误到 Worker 日志（Cloudflare Dashboard → 你的 Pages 项目 → Functions 日志）
+    console.error('Search API error:', {
+      message: error?.message,
+      status: error?.response?.status,
+      data: error?.response?.data,
+      stack: error?.stack,
+    })
+
+    return new Response(
+      JSON.stringify({
+        error: error?.response?.data ?? error?.message ?? 'Internal server error.',
+      }),
+      {
+        status: error?.response?.status ?? 500,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    )
   }
 }
