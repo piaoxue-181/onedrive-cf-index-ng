@@ -30,7 +30,7 @@ export function encodePath(path: string): string {
 }
 
 /**
- * Fetch the access token from Redis storage and check if the token requires a renew
+ * Fetch the access token from storage and check if the token requires a renew
  *
  * @returns Access token for OneDrive API
  */
@@ -86,7 +86,7 @@ export function getAuthTokenPath(path: string) {
   // Ensure trailing slashes to compare paths component by component. Same for protectedRoutes.
   // Since OneDrive ignores case, lower case before comparing. Same for protectedRoutes.
   path = path.toLowerCase() + '/'
-  const protectedRoutes = siteConfig.protectedRoutes as string[]
+  const protectedRoutes = (siteConfig.protectedRoutes ?? []) as string[]
   let authTokenPath = ''
   for (let r of protectedRoutes) {
     if (typeof r !== 'string') continue
@@ -109,8 +109,7 @@ export function getAuthTokenPath(path: string) {
  *
  * @param cleanPath Sanitised directory path, used for matching whether route is protected
  * @param accessToken OneDrive API access token
- * @param req Next.js request object
- * @param res Next.js response object
+ * @param odTokenHeader The value of the 'od-protected-token' request header
  */
 export async function checkAuthRoute(
   cleanPath: string,
@@ -135,7 +134,6 @@ export async function checkAuthRoute(
 
     // Handle request and check for header 'od-protected-token'
     const odProtectedToken = await axios.get(token.data['@microsoft.graph.downloadUrl'])
-    // console.log(odTokenHeader, odProtectedToken.data.trim())
 
     if (
       !compareHashedToken({
@@ -169,18 +167,16 @@ export default async function handler(req: NextRequest): Promise<Response> {
     // verify identity of the authenticated user with the Microsoft Graph API
     const { data, status } = await getAuthPersonInfo(accessToken)
     if (status !== 200) {
-      return new Response("Non-200 response from Microsoft Graph API", { status: 500 })
+      return new Response('Non-200 response from Microsoft Graph API', { status: 500 })
     }
 
     if (data.userPrincipalName !== siteConfig.userPrincipalName) {
-      return new Response("Do not pretend to be the owner!", { status: 403 })
+      return new Response('Do not pretend to be the owner!', { status: 403 })
     }
 
     await storeOdAuthTokens({ accessToken, accessTokenExpiry, refreshToken })
     return new Response('OK')
   }
-
-  // TODO: Set edge function caching for faster load times
 
   // If method is GET, then the API is a normal request to the OneDrive API for files or folders
   const { path = '/', next = '', sort = '' } = Object.fromEntries(req.nextUrl.searchParams)
@@ -209,7 +205,11 @@ export default async function handler(req: NextRequest): Promise<Response> {
   }
 
   // Handle protected routes authentication
-  const { code, message } = await checkAuthRoute(cleanPath, accessToken, req.headers.get('od-protected-token') as string)
+  const { code, message } = await checkAuthRoute(
+    cleanPath,
+    accessToken,
+    req.headers.get('od-protected-token') as string
+  )
   // Status code other than 200 means user has not authenticated yet
   if (code !== 200) {
     return new Response(JSON.stringify({ error: message }), { status: code })
@@ -242,6 +242,14 @@ export default async function handler(req: NextRequest): Promise<Response> {
           ...(sort ? { $orderby: sort } : {}),
         },
       })
+
+      // ✅ 过滤掉 siteConfig.hiddenItems 中配置的文件夹/文件名（如 Personal Vault）
+      const hiddenItems: string[] = siteConfig.hiddenItems ?? []
+      if (Array.isArray(folderData?.value) && hiddenItems.length > 0) {
+        folderData.value = folderData.value.filter(
+          (item: any) => !hiddenItems.includes(item.name)
+        )
+      }
 
       // Extract next page token from full @odata.nextLink
       const nextPage = folderData['@odata.nextLink']
@@ -278,8 +286,12 @@ export default async function handler(req: NextRequest): Promise<Response> {
       }
     )
   } catch (error: any) {
-    return new Response(JSON.stringify({ error: error?.response?.data ?? 'Internal server error.' }), {
-      status: error?.response?.code ?? 500,
-    })
+    return new Response(
+      JSON.stringify({ error: error?.response?.data ?? error?.message ?? 'Internal server error.' }),
+      {
+        status: error?.response?.status ?? 500,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    )
   }
 }
